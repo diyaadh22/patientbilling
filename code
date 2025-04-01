@@ -1,0 +1,85 @@
+# Load libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(kableExtra)
+
+# Set the working directory to where your files are located
+setwd("~/Documents/patientdata")
+
+# Load the data
+df_billing <- read_excel("Billing.xlsx")
+df_Patient <- read_excel("Patient.xlsx")
+df_Visit <- read_excel("Visit.xlsx")
+
+# Convert visit date to Date format and extract Month
+df_Visit <- df_Visit %>%
+  mutate(
+    VisitDate = as.Date(VisitDate),
+    Month = month(VisitDate, label = TRUE)
+  )
+
+# Prepare patient data
+df_patient_1 <- df_Patient %>%
+  select(LastName, FirstName, Phone, Address, City, Email, PatientID) %>%
+  distinct()
+
+# Join visits with patient data for earlier visits before 2021
+date_cutoff <- as.Date("2021-01-01")
+EarlierVisits <- df_Visit %>%
+  select(VisitID, PatientID, Reason, VisitDate) %>%
+  left_join(df_patient_1, by = "PatientID") %>%
+  filter(VisitDate < date_cutoff)
+
+# Join visits with patient data for all visits
+allVisits <- df_Visit %>%
+  select(VisitID, PatientID, Reason, VisitDate, Month) %>%
+  left_join(df_patient_1, by = "PatientID")
+
+# 1. Stacked Bar: Reason for Visit by Month
+ggplot(df_Visit, aes(x = Month, fill = Reason)) +
+  geom_bar(position = "stack") +
+  labs(title = "Reason for Visit by Month", x = "Month", y = "Count") +
+  theme_minimal()
+
+# 2. Reason for Visit: Walk-in vs Not
+
+if ("WalkIn" %in% names(df_Visit)) {
+  ggplot(df_Visit, aes(x = Reason, fill = WalkIn)) +
+    geom_bar(position = "dodge") +
+    labs(title = "Reason for Visit: Walk-in vs Non-Walk-in", x = "Reason", y = "Count") +
+    theme_minimal() +
+    coord_flip()
+}
+
+# 3. Reason for Visit by City
+ggplot(allVisits, aes(x = Reason, fill = City)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Reason for Visit by City", x = "Reason", y = "Count") +
+  theme_minimal() +
+  coord_flip()
+
+# 4. Total Invoice Amount by Reason for Visit, segmented by Paid
+df_full <- df_billing %>%
+  left_join(df_Visit, by = "VisitID")
+
+# Ensure Amount and Paid columns exist
+if (all(c("Amount", "Paid", "Reason") %in% names(df_full))) {
+  ggplot(df_full, aes(x = Reason, y = Amount, fill = Paid)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(title = "Total Invoice Amount by Reason (Segmented by Paid)", x = "Reason", y = "Total Amount") +
+    theme_minimal() +
+    coord_flip()
+}
+
+# 5. One Interesting Insight: Avg Invoice by Reason
+df_insight <- df_full %>%
+  group_by(Reason) %>%
+  summarise(avg_invoice = mean(Amount, na.rm = TRUE))
+
+ggplot(df_insight, aes(x = reorder(Reason, avg_invoice), y = avg_invoice)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Average Invoice Amount by Reason for Visit", x = "Reason", y = "Average Invoice ($)") +
+  theme_minimal() +
+  coord_flip()
